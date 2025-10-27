@@ -6,6 +6,7 @@ from PIL import Image
 from sqlmodel import Session, select
 from backend.core.db import engine
 from backend.models.entities import Map
+from pathlib import Path
 
 router = APIRouter()
 
@@ -46,6 +47,9 @@ async def create_map(
     except Exception:
         os.remove(disk_path)
         raise HTTPException(status_code=400, detail="Không đọc được ảnh.")
+
+    # Đổi dấu cho đồng nhất (Windows -> macOS/Linux)
+    disk_path = disk_path.replace("\\", "/")
 
     # tạo bản ghi DB
     m = Map(name=name, image_path=disk_path, width=width, height=height)
