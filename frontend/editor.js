@@ -37,16 +37,14 @@ const tooltip = document.getElementById("tooltip");
 const nodeList = document.getElementById("nodeList");
 const edgeList = document.getElementById("edgeList");
 
+let draggingNodeId = null;
+let dragStartX = 0; // Tọa độ ảnh (px)
+let dragStartY = 0; // Tọa độ ảnh (px)
+
 // ---------- Helpers ----------
 function setMode(m) {
 	mode = m;
-	modeBadge.textContent =
-		"MODE: " +
-		(m === "add-node"
-			? "Thêm điểm"
-			: m === "draw-edge"
-			? "Vẽ đường"
-			: "Idle");
+	modeBadge.textContent = "MODE: " + (m === "add-node" ? "Thêm điểm" : m === "draw-edge" ? "Vẽ đường" : "Idle");
 	overlay.style.pointerEvents = m === "idle" ? "none" : "auto";
 	updateFinishBtn();
 	if (m !== "draw-edge") {
@@ -55,8 +53,7 @@ function setMode(m) {
 }
 
 function updateFinishBtn() {
-	const canFinish =
-		mode === "draw-edge" && startNodeId && tempPoints.length >= 2;
+	const canFinish = mode === "draw-edge" && startNodeId && tempPoints.length >= 2;
 	btnFinishEdge.disabled = !canFinish;
 }
 
@@ -67,9 +64,7 @@ function clearTemp() {
 		tempLineEl.remove();
 		tempLineEl = null;
 	}
-	[...overlay.querySelectorAll(".node-dot")].forEach((el) =>
-		el.classList.remove("active")
-	);
+	[...overlay.querySelectorAll(".node-dot")].forEach((el) => el.classList.remove("active"));
 	updateFinishBtn();
 }
 
@@ -115,9 +110,7 @@ async function loadMaps() {
 	maps = data.items || [];
 
 	// mapSelect: liệt kê tất cả map
-	mapSelect.innerHTML = maps
-		.map((m) => `<option value="${m.id}">${m.name} (#${m.id})</option>`)
-		.join("");
+	mapSelect.innerHTML = maps.map((m) => `<option value="${m.id}">${m.name} (#${m.id})</option>`).join("");
 
 	if (maps.length) {
 		await selectMap(maps[0].id);
@@ -142,10 +135,7 @@ async function loadFloorsForCurrentMap() {
 	if (!currentMap) return;
 
 	// gom floor từ nodes & edges (nếu chưa có gì thì trả [1])
-	const [ns, es] = await Promise.all([
-		fetchJSON(`/nodes?map_id=${currentMap.id}`),
-		fetchJSON(`/edges?map_id=${currentMap.id}`),
-	]);
+	const [ns, es] = await Promise.all([fetchJSON(`/nodes?map_id=${currentMap.id}`), fetchJSON(`/edges?map_id=${currentMap.id}`)]);
 
 	const floors = new Set();
 	(ns || []).forEach((n) => floors.add(n.floor ?? 1));
@@ -155,9 +145,7 @@ async function loadFloorsForCurrentMap() {
 	if (!list.length) list = [1];
 
 	// render select
-	floorSelect.innerHTML = list
-		.map((f) => `<option value="${f}">${f}</option>`)
-		.join("");
+	floorSelect.innerHTML = list.map((f) => `<option value="${f}">${f}</option>`).join("");
 
 	// chọn mặc định: nếu có 1 thì lấy 1, không thì lấy phần tử đầu
 	currentFloor = list.includes(1) ? 1 : list[0];
@@ -211,10 +199,7 @@ async function selectMap(mapId) {
 
 	mapImage.src = currentMap.image_url;
 	mapImage.onload = async () => {
-		overlay.setAttribute(
-			"viewBox",
-			`0 0 ${currentMap.width} ${currentMap.height}`
-		);
+		overlay.setAttribute("viewBox", `0 0 ${currentMap.width} ${currentMap.height}`);
 		overlay.setAttribute("width", mapImage.clientWidth);
 		overlay.setAttribute("height", mapImage.clientHeight);
 
@@ -242,6 +227,34 @@ async function loadAliasesForNodes(nodeIds) {
 	);
 }
 
+// Đặt hàm này vào phần Helpers
+function updateConnectedEdges(nodeId) {
+	const connectedEdges = edges.filter((e) => e.start_node_id === nodeId || e.end_node_id === nodeId);
+	const node = nodes.find((n) => n.id === nodeId);
+	if (!node) return;
+
+	for (const edge of connectedEdges) {
+		// 1. Lấy polyline hiện tại (từ state) và tạo bản sao
+		const polyline = edge.polyline.slice();
+
+		// 2. Cập nhật điểm đầu (start_node)
+		if (edge.start_node_id === nodeId) {
+			polyline[0] = [node.x, node.y];
+		}
+
+		// 3. Cập nhật điểm cuối (end_node)
+		if (edge.end_node_id === nodeId) {
+			polyline[polyline.length - 1] = [node.x, node.y];
+		}
+
+		// 4. Tìm SVG element và cập nhật thuộc tính `points`
+		const edgeEl = overlay.querySelector(`.edge-line[data-edge-id="${edge.id}"]`);
+		if (edgeEl) {
+			edgeEl.setAttribute("points", polyline.map((p) => p.join(",")).join(" "));
+		}
+	}
+}
+
 function renderOverlay() {
 	overlay.innerHTML = ""; // clear
 	overlay.style.pointerEvents = mode === "idle" ? "none" : "auto";
@@ -249,29 +262,21 @@ function renderOverlay() {
 	// edges
 	for (const e of edges) {
 		const d = e.polyline.map((p) => p.join(",")).join(" ");
-		const line = document.createElementNS(
-			"http://www.w3.org/2000/svg",
-			"polyline"
-		);
+		const line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
 		line.setAttribute("points", d);
 		line.setAttribute("class", "edge-line");
+		line.setAttribute("data-edge-id", e.id);
 		overlay.appendChild(line);
 	}
 
 	// nodes
 	for (const n of nodes) {
-		const c = document.createElementNS(
-			"http://www.w3.org/2000/svg",
-			"circle"
-		);
+		const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
 		c.setAttribute("cx", n.x);
 		c.setAttribute("cy", n.y);
 		c.setAttribute("r", 6);
 		c.setAttribute("data-node-id", n.id);
-		c.setAttribute(
-			"class",
-			"node-dot" + (n.is_landmark ? " landmark" : "")
-		);
+		c.setAttribute("class", "node-dot" + (n.is_landmark ? " landmark" : ""));
 		c.style.pointerEvents = "auto";
 
 		// CLICK: dùng single-click để chọn start hoặc kết thúc đường
@@ -281,19 +286,15 @@ function renderOverlay() {
 		c.addEventListener("mousemove", onNodeMove);
 		c.addEventListener("mouseleave", onNodeLeave);
 
+		c.addEventListener("mousedown", onNodeDragStart);
+
 		overlay.appendChild(c);
 	}
 
 	// temp polyline (nếu có)
 	if (tempPoints.length > 1) {
-		tempLineEl = document.createElementNS(
-			"http://www.w3.org/2000/svg",
-			"polyline"
-		);
-		tempLineEl.setAttribute(
-			"points",
-			tempPoints.map((p) => p.join(",")).join(" ")
-		);
+		tempLineEl = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+		tempLineEl.setAttribute("points", tempPoints.map((p) => p.join(",")).join(" "));
 		tempLineEl.setAttribute("class", "temp-line");
 		overlay.appendChild(tempLineEl);
 	}
@@ -315,20 +316,12 @@ function renderLists() {
 			return `<div class="item" data-node="${n.id}">
       <div><b>#${n.id}</b> (${Math.round(n.x)}, ${Math.round(n.y)})${
 				n.is_landmark ? " • landmark" : ""
-			} <button class="btn-mini" title="Xóa điểm" data-action="del-node" data-node-id="${
-				n.id
-			}">Xóa</button></div>
+			} <button class="btn-mini" title="Xóa điểm" data-action="del-node" data-node-id="${n.id}">Xóa</button></div>
       <div class="sub">Alias:</div>
-      <div class="alias-list">${
-			aliases || '<span class="small">— chưa có —</span>'
-		}</div>
+      <div class="alias-list">${aliases || '<span class="small">— chưa có —</span>'}</div>
       <div class="alias-add">
-        <input type="text" placeholder="Thêm alias..." data-input-alias="${
-			n.id
-		}">
-        <button class="btn-mini" data-action="add-alias" data-node-id="${
-			n.id
-		}">Thêm</button>
+        <input type="text" placeholder="Thêm alias..." data-input-alias="${n.id}">
+        <button class="btn-mini" data-action="add-alias" data-node-id="${n.id}">Thêm</button>
       </div>
     </div>`;
 		})
@@ -337,14 +330,10 @@ function renderLists() {
 	edgeList.innerHTML = edges
 		.map((e) => {
 			return `<div class="item">
-      <div><b>#${e.id}</b> ${e.start_node_id} → ${
-				e.end_node_id
-			} <button class="btn-mini" title="Xóa cạnh" data-action="del-edge" data-edge-id="${
+      <div><b>#${e.id}</b> ${e.start_node_id} → ${e.end_node_id} <button class="btn-mini" title="Xóa cạnh" data-action="del-edge" data-edge-id="${
 				e.id
 			}">Xóa</button></div>
-      <div class="sub">đoạn: ${e.polyline.length} • weight: ${formatPx(
-				e.weight
-			)}</div>
+      <div class="sub">đoạn: ${e.polyline.length} • weight: ${formatPx(e.weight)}</div>
     </div>`;
 		})
 		.join("");
@@ -358,10 +347,8 @@ function tooltipShow(html, clientX, clientY) {
 	let left = clientX - r.left + 12;
 	let top = clientY - r.top + 12;
 	// tránh tràn
-	if (left + tooltip.offsetWidth > r.width - 8)
-		left = r.width - tooltip.offsetWidth - 8;
-	if (top + tooltip.offsetHeight > r.height - 8)
-		top = r.height - tooltip.offsetHeight - 8;
+	if (left + tooltip.offsetWidth > r.width - 8) left = r.width - tooltip.offsetWidth - 8;
+	if (top + tooltip.offsetHeight > r.height - 8) top = r.height - tooltip.offsetHeight - 8;
 	tooltip.style.left = left + "px";
 	tooltip.style.top = top + "px";
 }
@@ -377,12 +364,8 @@ function onNodeEnter(ev) {
 		.join(", ");
 	const n = nodes.find((nn) => nn.id === nid);
 	const html = `<b>Node #${nid}</b>${n.is_landmark ? " • landmark" : ""}<br>
-                <span class="small">(${Math.round(n.x)}, ${Math.round(
-		n.y
-	)})</span><br>
-                <span class="small">${
-					aliases ? aliases : "— chưa có alias —"
-				}</span>`;
+                <span class="small">(${Math.round(n.x)}, ${Math.round(n.y)})</span><br>
+                <span class="small">${aliases ? aliases : "— chưa có alias —"}</span>`;
 	tooltipShow(html, ev.clientX, ev.clientY);
 }
 function onNodeMove(ev) {
@@ -397,9 +380,7 @@ function onNodeLeave() {
 overlay.addEventListener("click", async (ev) => {
 	if (mode === "add-node") {
 		const [x, y] = clientToImageXY(ev);
-		const is_landmark = confirm(
-			"Đặt điểm này là Landmark? OK = Có, Cancel = Không"
-		);
+		const is_landmark = confirm("Đặt điểm này là Landmark? OK = Có, Cancel = Không");
 		const body = {
 			map_id: currentMap.id,
 			x,
@@ -560,14 +541,11 @@ btnCancel.addEventListener("click", () => setMode("idle"));
 
 btnFinishEdge.addEventListener("click", finishEdgeAuto);
 function finishEdgeAuto() {
-	if (!(mode === "draw-edge" && startNodeId && tempPoints.length >= 2))
-		return;
+	if (!(mode === "draw-edge" && startNodeId && tempPoints.length >= 2)) return;
 	const last = tempPoints[tempPoints.length - 1];
 	const nearId = findNearestNodeId(last[0], last[1], 20);
 	if (!nearId || nearId === startNodeId) {
-		alert(
-			"Hãy click vào node đích (hoặc kéo điểm cuối gần node hơn) rồi nhấn Enter."
-		);
+		alert("Hãy click vào node đích (hoặc kéo điểm cuối gần node hơn) rồi nhấn Enter.");
 		return;
 	}
 	finalizeEdge(nearId);
@@ -575,20 +553,33 @@ function finishEdgeAuto() {
 
 // Keyboard: Enter = finish, Esc = cancel, Z = undo
 window.addEventListener("keydown", (e) => {
-	if (mode !== "draw-edge") return;
-	if (e.key === "Enter") {
-		e.preventDefault();
-		finishEdgeAuto();
-	} else if (e.key === "Escape") {
-		e.preventDefault();
-		setMode("idle");
-	} else if (e.key.toLowerCase() === "z") {
-		// hoàn tác 1 điểm trung gian (giữ điểm đầu)
-		if (tempPoints.length > 1) {
-			tempPoints.pop();
-			renderOverlay();
-			updateFinishBtn();
+	if (mode == "draw-edge") {
+		if (e.key === "Enter") {
+			e.preventDefault();
+			finishEdgeAuto();
+		} else if (e.key === "Escape") {
+			e.preventDefault();
+			setMode("idle");
+		} else if (e.key.toLowerCase() === "z") {
+			// hoàn tác 1 điểm trung gian (giữ điểm đầu)
+			if (tempPoints.length > 1) {
+				tempPoints.pop();
+				renderOverlay();
+				updateFinishBtn();
+			}
 		}
+	}
+
+	if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") {
+		return; // Bỏ qua nếu đang gõ vào ô input
+	}
+
+	if (e.key.toLowerCase() === "n") {
+		setMode("add-node");
+	} else if (e.key.toLowerCase() === "e") {
+		setMode("draw-edge");
+	} else if (e.key === "Escape") {
+		setMode("idle");
 	}
 });
 
@@ -606,9 +597,7 @@ nodeList.addEventListener("click", async (e) => {
 	const action = btn.getAttribute("data-action");
 	if (action === "add-alias") {
 		const nodeId = parseInt(btn.getAttribute("data-node-id"), 10);
-		const input = nodeList.querySelector(
-			`input[data-input-alias="${nodeId}"]`
-		);
+		const input = nodeList.querySelector(`input[data-input-alias="${nodeId}"]`);
 		const val = (input?.value || "").trim();
 		if (!val) return;
 		try {
@@ -698,9 +687,7 @@ async function clearAllData() {
 			body: JSON.stringify({ map_id: currentMap.id, delete_map: false }),
 		});
 		await loadNodesEdgesForFloor(currentFloor);
-		alert(
-			`Đã xóa: ${res.deleted.nodes} nodes, ${res.deleted.aliases} aliases, ${res.deleted.edges} edges.`
-		);
+		alert(`Đã xóa: ${res.deleted.nodes} nodes, ${res.deleted.aliases} aliases, ${res.deleted.edges} edges.`);
 	} catch (err) {
 		alert("Lỗi khi xóa: " + err.message);
 	}
@@ -718,9 +705,7 @@ addFloorBtn.addEventListener("click", async () => {
 	}
 
 	// nếu đã tồn tại thì chỉ cần chọn
-	const exists = Array.from(floorSelect.options).some(
-		(o) => parseInt(o.value, 10) === n
-	);
+	const exists = Array.from(floorSelect.options).some((o) => parseInt(o.value, 10) === n);
 	if (!exists) {
 		const opt = document.createElement("option");
 		opt.value = String(n);
@@ -739,6 +724,136 @@ addFloorBtn.addEventListener("click", async () => {
 	await loadNodesEdgesForFloor(currentFloor);
 	setMode("idle");
 });
+
+function onNodeDragStart(ev) {
+	// Chỉ cho phép kéo khi ở chế độ "idle"
+	if (mode !== "idle") return;
+
+	// Ngăn click event (onNodeClick) được kích hoạt ngay sau đó
+	ev.stopPropagation();
+
+	const el = ev.currentTarget;
+	const nid = parseInt(el.getAttribute("data-node-id"), 10);
+	const n = nodes.find((nn) => nn.id === nid);
+	if (!n) return;
+
+	draggingNodeId = nid;
+
+	// Lấy tọa độ ảnh ban đầu
+	const [x, y] = clientToImageXY(ev);
+	dragStartX = n.x;
+	dragStartY = n.y;
+
+	// Bắt sự kiện di chuyển và thả trên toàn bộ mapWrap/window
+	mapWrap.addEventListener("mousemove", onNodeDrag);
+	window.addEventListener("mouseup", onNodeDragEnd);
+
+	// Thêm class để thay đổi con trỏ chuột
+	document.body.classList.add("dragging-active");
+}
+
+function onNodeDrag(ev) {
+	if (!draggingNodeId) return;
+
+	// Ngăn chặn việc chọn văn bản khi kéo
+	ev.preventDefault();
+
+	const [x, y] = clientToImageXY(ev);
+
+	const n = nodes.find((nn) => nn.id === draggingNodeId);
+	const nodeEl = overlay.querySelector(`circle[data-node-id="${draggingNodeId}"]`);
+
+	if (n && nodeEl) {
+		// 1. Cập nhật vị trí Node trong State (quan trọng cho bước 2)
+		n.x = x;
+		n.y = y;
+
+		// 2. Cập nhật vị trí trực tiếp của SVG Node (Di chuyển điểm)
+		nodeEl.setAttribute("cx", x);
+		nodeEl.setAttribute("cy", y);
+
+		// 3. Cập nhật các Edge liên quan (Di chuyển đường)
+		updateConnectedEdges(draggingNodeId);
+	}
+}
+
+async function onNodeDragEnd(ev) {
+	if (!draggingNodeId) return;
+
+	mapWrap.removeEventListener("mousemove", onNodeDrag);
+	window.removeEventListener("mouseup", onNodeDragEnd);
+	document.body.classList.remove("dragging-active");
+
+	const nodeId = draggingNodeId;
+	draggingNodeId = null;
+
+	const [newX, newY] = clientToImageXY(ev);
+
+	// Làm tròn tọa độ cho đẹp
+	const finalX = _round(newX, 1);
+	const finalY = _round(newY, 1);
+
+	// Tìm Node trong state (tọa độ của nó đã được cập nhật tạm thời trong onNodeDrag)
+	const movedNode = nodes.find((n) => n.id === nodeId);
+	if (!movedNode) {
+		await loadNodesEdgesForFloor(currentFloor);
+		return;
+	}
+
+	// 1. Kiểm tra xem có di chuyển đáng kể không
+	if (Math.hypot(finalX - dragStartX, finalY - dragStartY) < 1) {
+		await loadNodesEdgesForFloor(currentFloor);
+		return;
+	}
+
+	// Đảm bảo Node có tọa độ cuối cùng chính xác trong state
+	movedNode.x = finalX;
+	movedNode.y = finalY;
+
+	try {
+		// 2. Gửi API PATCH để cập nhật tọa độ Node
+		await fetchJSON(`/nodes/${nodeId}`, {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ x: finalX, y: finalY }),
+		});
+
+		// 3. Cập nhật tất cả các Edge liên quan
+		const connectedEdges = edges.filter((e) => e.start_node_id === nodeId || e.end_node_id === nodeId);
+
+		const edgeUpdates = connectedEdges.map(async (edge) => {
+			// Tạo polyline mới dựa trên vị trí Node đã cập nhật
+			const newPolyline = edge.polyline.slice();
+
+			// Cập nhật điểm đầu (chắc chắn là Node đang kéo)
+			if (edge.start_node_id === nodeId) {
+				newPolyline[0] = [finalX, finalY];
+			}
+			// Cập nhật điểm cuối (chắc chắn là Node đang kéo)
+			if (edge.end_node_id === nodeId) {
+				newPolyline[newPolyline.length - 1] = [finalX, finalY];
+			}
+
+			// Gửi API PATCH để cập nhật Edge
+			return fetchJSON(`/edges/${edge.id}`, {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				// Chỉ gửi 2 trường quan trọng nhất bị thay đổi
+				body: JSON.stringify({ polyline: newPolyline }),
+			});
+		});
+
+		// Chờ tất cả Edge được cập nhật xong
+		await Promise.all(edgeUpdates);
+
+		// 4. Load lại toàn bộ dữ liệu để đồng bộ hoàn toàn state và UI
+		await loadNodesEdgesForFloor(currentFloor);
+	} catch (err) {
+		// Nếu có lỗi, thông báo và tải lại để khôi phục trạng thái cũ
+		alert("Lỗi khi cập nhật Node/Edge: " + err.message);
+		await loadNodesEdgesForFloor(currentFloor);
+	}
+}
 
 btnClearAll.addEventListener("click", clearAllData);
 // Init
