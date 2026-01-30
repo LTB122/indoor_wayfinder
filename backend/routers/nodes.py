@@ -12,15 +12,19 @@ def get_session():
     with Session(engine) as session:
         yield session
 
-
 class NodeIn(BaseModel):
     map_id: int
     x: float
     y: float
     is_landmark: bool = False
-    floor: int
-    meta: Optional[str] = None  # JSON string nếu muốn
+    aliases: List[str] = [] 
+    
+class AliasOut(BaseModel):
+    id: int
+    name: str
 
+    class Config:
+        from_attributes = True
 
 class NodeOut(BaseModel):
     id: int
@@ -28,47 +32,46 @@ class NodeOut(BaseModel):
     x: float
     y: float
     is_landmark: bool
-    floor: int
-    meta: Optional[str]
+    aliases: List[AliasOut] = [] 
 
+    class Config:
+        from_attributes = True
+        
+class NodeUpdate(BaseModel):
+    x: Optional[float] = None
+    y: Optional[float] = None
+    is_landmark: Optional[bool] = None
 
 @router.post("", response_model=NodeOut)
 def create_node(payload: NodeIn, session: Session = Depends(get_session)):
     m = session.get(Map, payload.map_id)
     if not m:
         raise HTTPException(status_code=404, detail="Map không tồn tại.")
-    n = Node(**payload.dict())
+    
+    node_data = payload.dict(exclude={"aliases"})
+    n = Node(**node_data)
     session.add(n)
+    session.flush() 
+    
+    for name in payload.aliases:
+        alias = Alias(node_id=n.id, name=name)
+        session.add(alias)
+    
     session.commit()
     session.refresh(n)
-    return NodeOut(**n.dict())
-
+    return n
 
 @router.get("", response_model=List[NodeOut])
-def list_nodes(
-    map_id: int, floor: Optional[int] = None, session: Session = Depends(get_session)
-):
+def list_nodes(map_id: int, session: Session = Depends(get_session)):
     stmt = select(Node).where(Node.map_id == map_id)
-    if floor is not None:
-        stmt = stmt.where(Node.floor == floor)
     return session.exec(stmt).all()
-
 
 @router.get("/{node_id}", response_model=NodeOut)
 def get_node(node_id: int, session: Session = Depends(get_session)):
     n = session.get(Node, node_id)
     if not n:
         raise HTTPException(status_code=404, detail="Node không tồn tại.")
-    return NodeOut(**n.dict())
-
-
-class NodeUpdate(BaseModel):
-    x: Optional[float] = None
-    y: Optional[float] = None
-    is_landmark: Optional[bool] = None
-    floor: Optional[str] = None
-    meta: Optional[str] = None
-
+    return n
 
 @router.patch("/{node_id}", response_model=NodeOut)
 def update_node(
@@ -77,34 +80,33 @@ def update_node(
     n = session.get(Node, node_id)
     if not n:
         raise HTTPException(status_code=404, detail="Node không tồn tại.")
+    
+    # Update các field cơ bản
     data = payload.dict(exclude_unset=True)
     for k, v in data.items():
         setattr(n, k, v)
+        
     session.add(n)
     session.commit()
     session.refresh(n)
-    return NodeOut(**n.dict())
+    return n
 
-
-@router.delete("/{node_id}", response_model=dict)
+@router.delete("/{node_id}")
 def delete_node(node_id: int, session: Session = Depends(get_session)):
     n = session.get(Node, node_id)
     if not n:
         raise HTTPException(status_code=404, detail="Node không tồn tại.")
 
     # Xoá alias liên quan
-    for a in session.exec(select(Alias).where(Alias.node_id == node_id)).all():
+    stmt_alias = select(Alias).where(Alias.node_id == node_id)
+    for a in session.exec(stmt_alias).all():
         session.delete(a)
 
-    # Xoá edge có start/end là node này
-    for e in session.exec(
-        select(Edge).where(
-            (Edge.start_node_id == node_id) | (Edge.end_node_id == node_id)
-        )
-    ).all():
+    # Xoá edge liên quan (cả chiều đi và chiều đến)
+    stmt_edge = select(Edge).where((Edge.start_node_id == node_id) | (Edge.end_node_id == node_id))
+    for e in session.exec(stmt_edge).all():
         session.delete(e)
 
-    # Cuối cùng xoá node
     session.delete(n)
     session.commit()
-    return {"ok": True}
+    return {"message": "Xóa node thành công"}

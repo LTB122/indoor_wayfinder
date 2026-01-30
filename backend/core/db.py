@@ -29,7 +29,4 @@ else:
 
 
 def init_db():
-    # import models để SQLModel biết tất cả lớp
-    from backend.models.entities import Map, Node, Alias, Edge
-
     SQLModel.metadata.create_all(engine)

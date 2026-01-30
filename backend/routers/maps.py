@@ -1,9 +1,11 @@
-import os, shutil
+import os
+import shutil
 from datetime import datetime
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-from fastapi import Depends
+from typing import List, Optional
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from PIL import Image
 from sqlmodel import Session, select
+
 from backend.core.db import engine
 from backend.models.entities import Map
 
@@ -14,23 +16,22 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 BASE_STATIC = "/static/uploads"
 
-
 def get_session():
     with Session(engine) as session:
         yield session
 
-
 @router.post("", response_model=dict)
 async def create_map(
     name: str = Form(...),
+    floor_number: int = Form(...),
+    scale: float = Form(1.0),
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
 ):
-    # validate mimetype
     if file.content_type not in ["image/png", "image/jpeg", "image/jpg", "image/webp"]:
         raise HTTPException(status_code=400, detail="File phải là ảnh (png/jpg/webp).")
 
-    # lưu tạm để đọc size
+    # 2. Tạo tên file duy nhất
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
     ext = os.path.splitext(file.filename)[1].lower() or ".png"
     filename = f"map_{ts}{ext}"
@@ -39,61 +40,46 @@ async def create_map(
     with open(disk_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # đọc kích thước
-    try:
-        with Image.open(disk_path) as im:
-            width, height = im.size
-    except Exception:
-        os.remove(disk_path)
-        raise HTTPException(status_code=400, detail="Không đọc được ảnh.")
-
-    # tạo bản ghi DB
-    m = Map(name=name, image_path=disk_path, width=width, height=height)
-    session.add(m)
+    new_map = Map(
+        name=name,
+        floor_number=floor_number,
+        scale=scale,
+        image_link=disk_path 
+    )
+    
+    session.add(new_map)
     session.commit()
-    session.refresh(m)
+    session.refresh(new_map)
 
-    return {
-        "id": m.id,
-        "name": m.name,
-        "image_path": m.image_path,
-        "image_url": f"{BASE_STATIC}/{os.path.basename(m.image_path)}",
-        "width": m.width,
-        "height": m.height,
-        "created_at": m.created_at.isoformat() + "Z",
-    }
-
+    return new_map
 
 @router.get("/{map_id}", response_model=dict)
 def get_map(map_id: int, session: Session = Depends(get_session)):
     m = session.get(Map, map_id)
     if not m:
         raise HTTPException(status_code=404, detail="Map không tồn tại.")
-    return {
-        "id": m.id,
-        "name": m.name,
-        "image_path": m.image_path,
-        "image_url": f"{BASE_STATIC}/{os.path.basename(m.image_path)}",
-        "width": m.width,
-        "height": m.height,
-        "created_at": m.created_at.isoformat() + "Z",
-    }
-
+    return m
 
 @router.get("", response_model=dict)
 def list_maps(session: Session = Depends(get_session)):
-    maps = session.exec(select(Map).order_by(Map.created_at.desc())).all()
+    # Lấy danh sách map, có thể thêm order_by nếu có field created_at
+    statement = select(Map)
+    maps = session.exec(statement).all()
+    
     return {
-        "items": [
-            {
-                "id": m.id,
-                "name": m.name,
-                "image_path": m.image_path,
-                "image_url": f"{BASE_STATIC}/{os.path.basename(m.image_path)}",
-                "width": m.width,
-                "height": m.height,
-                "created_at": m.created_at.isoformat() + "Z",
-            }
-            for m in maps
-        ]
+        "items": [m for m in maps]
     }
+
+@router.delete("/{map_id}")
+def delete_map(map_id: int, session: Session = Depends(get_session)):
+    m = session.get(Map, map_id)
+    if not m:
+        raise HTTPException(status_code=404, detail="Map không tồn tại.")
+    
+    # Xóa file vật lý trước khi xóa DB
+    if os.path.exists(m.image_link):
+        os.remove(m.image_link)
+        
+    session.delete(m)
+    session.commit()
+    return {"message": "Đã xóa map thành công"}
