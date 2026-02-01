@@ -9,22 +9,22 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "axios": "^1.13.4",
-    "clsx": "^2.1.1",
-    "lucide-react": "^0.563.0",
+    "@tailwindcss/postcss": "^4.1.18",
+    "@tailwindcss/vite": "^4.1.18",
     "next": "16.1.6",
     "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "react-zoom-pan-pinch": "^3.7.0",
-    "tailwind-merge": "^3.4.0"
+    "react-dom": "19.2.3"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "autoprefixer": "^10.4.23",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
     "typescript": "^5"
   }
 }

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lean Canvas Bootstrap - VR Presentation Trainer</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --border-gray: #bbb;
+            --text-dark: #333;
+        }
+
+        body {
+            background-color: #f0f2f5;
+            padding: 20px;
+        }
+
+        .canvas-wrapper {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #fff;
+            border: 2px solid var(--border-gray);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Chỉnh chiều cao cố định cho các hàng để giống Canvas */
+        .main-row {
+            min-height: 450px;
+        }
+
+        .bottom-row {
+            min-height: 300px;
+        }
+
+        .box {
+            border: 0.5px solid var(--border-gray);
+            padding: 20px 15px;
+            position: relative;
+            background: #fff;
+        }
+
+        .box h3 {
+            font-size: 0.85rem;
+            font-weight: 800;
+            color: #555;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+        }
+
+        .box ul {
+            padding-left: 1.2rem;
+            font-size: 0.75rem;
+            line-height: 1.6;
+            color: var(--text-dark);
+        }
+
+        .box ul li {
+            margin-bottom: 5px;
+        }
+
+        /* Số nhỏ ở góc */
+        .num {
+            position: absolute;
+            top: 8px;
+            right: 12px;
+            font-size: 16px;
+            font-weight: 900;
+        }
+
+        /* Màu sắc số */
+        .n1 {
+            color: #f2921b;
+        }
+
+        .n2 {
+            color: #5cc9f5;
+        }
+
+        .n3 {
+            color: #e89541;
+        }
+
+        .n4 {
+            color: #d61f1f;
+        }
+
+        .n5 {
+            color: #5394f7;
+        }
+
+        .n6 {
+            color: #1e5ba6;
+        }
+
+        .n7 {
+            color: #5394f7;
+        }
+
+        .n8 {
+            color: #e8bc31;
+        }
+
+        .n9 {
+            color: #9c27b0;
+        }
+
+        .n10 {
+            color: #b57ba3;
+        }
+
+        .n11 {
+            color: #7cb342;
+        }
+
+        .n12 {
+            color: #ff00ff;
+        }
+
+        /* Đặc biệt cho ô 5 */
+        .bg-value-prop {
+            background-color: #fffef0;
+        }
+
+        /* Helper để chia 5 cột đều nhau trong Bootstrap */
+        .col-5-custom {
+            width: 20%;
+            flex: 0 0 20%;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container-fluid">
+        <div class="canvas-wrapper">
+            <div class="row g-0 main-row">
+                <div class="col-5-custom box">
+                    <span class="num n2">2</span>
+                    <h3>Problems</h3>
+                    <ul>
+                        <li>Áp lực tâm lý, run, mất bình tĩnh khi đứng trước đám đông thật.</li>
+                        <li>Thiếu môi trường luyện tập thực tế (chỉ tập trước gương hoặc slide đơn điệu).</li>
+                        <li>Không nhận được phản hồi khách quan về ngôn ngữ cơ thể, ánh mắt và giọng nói.</li>
+                        <li>Kỹ năng xử lý câu hỏi phản biện còn yếu.</li>
+                    </ul>
+                </div>
+
+                <div class="col-5-custom d-flex flex-column">
+                    <div class="box flex-fill">
+                        <span class="num n3">3</span>
+                        <h3>Solutions</h3>
+                        <ul>
+                            <li>Tạo môi trường thực tế ảo (VR) đa dạng: lớp học, phòng họp, hội trường.</li>
+                            <li>NPC khán giả có hành vi, biểu cảm và khả năng đặt câu hỏi phản biện như thật.</li>
+                            <li>Hệ thống tracking (ánh mắt, cử chỉ, giọng nói) để phân tích tương tác.</li>
+                            <li>Cảnh báo và hỗ trợ tâm lý thời gian thực (nhắc hít thở, điều chỉnh âm lượng).</li>
+                        </ul>
+                    </div>
+                    <div class="box flex-fill">
+                        <span class="num n4">4</span>
+                        <h3>Key Metrics</h3>
+                        <ul>
+                            <li>Chỉ số tương tác ánh mắt.</li>
+                            <li>Tần suất sử dụng từ đệm ("ờ", "à", "thì", "là").</li>
+                            <li>Điểm đánh giá mức độ hài lòng của NPC sau phần Q&A.</li>
+                            <li>Tốc độ cải thiện sự tự tin qua các chỉ số sinh trắc học (giọng nói ổn định, nhịp thở).
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="col-5-custom box bg-value-prop">
+                    <span class="num n5">5</span>
+                    <h3>Value Propositions</h3>
+                    <ul>
+                        <li>Cung cấp một "phòng tập thông minh" an toàn để sai, sửa và hoàn thiện kỹ năng.</li>
+                        <li>Chuyển đổi từ luyện tập cảm tính sang luyện tập dựa trên dữ liệu.</li>
+                        <li> Giảm thiểu rủi ro thất bại trong các buổi thuyết trình quan trọng ngoài đời thực.</li>
+                    </ul>
+                </div>
+
+                <div class="col-5-custom d-flex flex-column">
+                    <div class="box flex-fill">
+                        <span class="num n7">7</span>
+                        <h3>Unfair Advantage</h3>
+                        <ul>
+                            <li>Thuật toán phân tích tương tác độc quyền.</li>
+                            <li>Hệ thống NPC tích hợp AI phản biện sâu.</li>
+                            <li>Nhận diện tâm lý qua sinh trắc học.</li>
+                        </ul>
+                    </div>
+                    <div class="box flex-fill">
+                        <span class="num n6">6</span>
+                        <h3>Channels</h3>
+                        <ul>
+                            <li>Cửa hàng ứng dụng VR (Oculus Store, SteamVR).</li>
+                            <li>Hợp tác với các trường đại học/trung tâm đào tạo kỹ năng mềm.</li>
+                            <li>Quảng bá qua các cộng đồng sinh viên và diễn đàn nhân sự (HR).</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="col-5-custom box">
+                    <span class="num n1">1</span>
+                    <h3>Customer Segments</h3>
+                    <ul>
+                        <li><b>Sinh viên:</b> Cần luyện tập bảo vệ đồ án, thuyết trình nhóm, thi học thuật.</li>
+                        <li><b>Nhân viên:</b> Cần báo cáo trước lãnh đạo, trình bày dự án với khách hàng.</li>
+                        <li><b>Diễn giả:</b> Luyện tập cho các buổi workshop, hội nghị lớn.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="row g-0 bottom-row">
+                <div class="col-md-4 d-flex flex-column" style="width: 40%;">
+                    <div class="box flex-fill">
+                        <span class="num n10">10</span>
+                        <h3>Key Resources</h3>
+                        <ul>
+                            <li>Đội ngũ lập trình viên VR và AI.</li>
+                            <li>Hệ thống máy chủ xử lý dữ liệu.</li>
+                            <li>Bộ thư viện nội dung (môi trường 3D, mô hình NPC).</li>
+                        </ul>
+                    </div>
+                    <div class="box flex-fill">
+                        <span class="num n11">11</span>
+                        <h3>Cost Structure</h3>
+                        <ul>
+                            <li>Chi phí phát triển phần mềm và nghiên cứu AI.</li>
+                            <li>Chi phí thiết kế đồ họa 3D.</li>
+                            <li>Phí duy trì hạ tầng Cloud/Server.</li>
+                            <li>Chi phí Marketing và vận hành hệ thống.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="col-md-2 box" style="width: 20%;">
+                    <span class="num n9">9</span>
+                    <h3>Key Activities</h3>
+                    <ul>
+                        <li>Phát triển và tối ưu hóa môi trường 3D/VR.</li>
+                        <li>Xây dựng kịch bản AI cho NPC (hành vi và câu hỏi).</li>
+                        <li>Phân tích dữ liệu người dùng để đưa ra nhận xét tự động.</li>
+                        <li>Bảo trì và cập nhật nội dung bối cảnh mới.</li>
+                    </ul>
+                </div>
+
+                <div class="col-md-4 d-flex flex-column" style="width: 40%;">
+                    <div class="box flex-fill">
+                        <span class="num n8">8</span>
+                        <h3>Revenue Streams</h3>
+                        <ul>
+                            <li>Bán gói đăng ký theo tháng/năm cho cá nhân (SaaS).</li>
+                            <li>án giấy phép sử dụng (License) cho các tổ chức giáo dục và doanh nghiệp.</li>
+                        </ul>
+                    </div>
+                    <div class="box flex-fill">
+                        <span class="num n12">12</span>
+                        <h3>Key Partners</h3>
+                        <ul>
+                            <li>Các đơn vị cung cấp thiết bị phần cứng VR (Meta, HTC, Sony).</li>
+                            <li>Các trường đại học, CLB kỹ năng, trung tâm đào tạo lãnh đạo.</li>
+                            <li>Các chuyên gia đào tạo thuyết trình.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+
+</html>
