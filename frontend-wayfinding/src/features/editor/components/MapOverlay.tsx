@@ -46,7 +46,7 @@ export const MapOverlay = ({ onUploadSuccess }: MapOverlayProps) => {
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="flex flex-col p-8 border border-indigo-50 rounded-3xl bg-white shadow-2xl w-full max-w-2xl relative max-h-[90vh] overflow-y-auto">
+      <div className="flex flex-col p-8 border border-indigo-50 rounded-3xl bg-white shadow-2xl w-full max-w-2xl relative max-h-[90vh] overflow-y-auto text-black">
         
         <h3 className="text-2xl font-extrabold text-slate-800 mb-6 text-center">Quản lý Bản đồ</h3>
 
@@ -125,9 +125,9 @@ const UploadMapForm = ({ onSuccess }: { onSuccess: (m: MapData) => void }) => {
             const formData = new FormData();
             formData.append("name", name);
             formData.append("file", file);
-            formData.append("scale_ratio", scale);
-            if (floor) formData.append("floor_level", floor);
-            if (buildingId) formData.append("building_id", buildingId);
+            formData.append("scale_ratio", scale.toString());
+            if (floor) formData.append("floor_level", floor.toString());
+            if (buildingId) formData.append("building_id", buildingId.toString());
 
             // GỌI API QUA SERVICE
             const newMap = await mapApi.upload(formData);

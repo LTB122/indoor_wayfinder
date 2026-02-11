@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useEditorStore } from '../stores/editorStores';
 import { MapNode, MapEdge } from '@/shared/types'; // Nhớ import đúng type
+import { editorApi } from "@/features/editor/api/editorApi";
 
 export const InspectorPanel = () => {
   // 1. LẤY STATE TỪ STORE
@@ -47,22 +48,44 @@ export const InspectorPanel = () => {
     setFormData((prev: any) => ({ ...prev, [field]: value }));
   };
 
-  const handleSave = () => {
-    if (selectedType === 'node') updateNode(formData.id, formData);
-    else updateEdge(formData.id, formData);
-    setEditing(false);
+  const handleSave = async () => {
+    try {
+        if (selectedType === 'node') {
+            // Update UI trước
+            updateNode(formData.id, formData);
+            // Gọi API
+            await editorApi.updateNode(formData.id, formData);
+        } else {
+            updateEdge(formData.id, formData);
+            await editorApi.updateEdge(formData.id, formData);
+        }
+        setEditing(false);
+    } catch (error) {
+        alert("Lỗi lưu dữ liệu!");
+        // Revert lại data gốc nếu cần
+        setFormData({ ...data });
+    }
+  };
+
+  const handleDelete = async () => {
+    if (confirm("Bạn có chắc chắn muốn xóa?")) {
+        try {
+            if (selectedType === 'node') {
+                await editorApi.deleteNode(formData.id);
+                deleteNode(formData.id); // Xóa khỏi store
+            } else {
+                await editorApi.deleteEdge(formData.id);
+                deleteEdge(formData.id); // Xóa khỏi store
+            }
+        } catch (error) {
+            alert("Không thể xóa!");
+        }
+    }
   };
 
   const handleCancel = () => {
     setFormData({ ...data }); // Revert về data gốc từ store
     setEditing(false);
-  };
-
-  const handleDelete = () => {
-    if (confirm("Bạn có chắc chắn muốn xóa đối tượng này?")) {
-      if (selectedType === 'node') deleteNode(formData.id);
-      else deleteEdge(formData.id);
-    }
   };
 
   const toggleEdit = () => {

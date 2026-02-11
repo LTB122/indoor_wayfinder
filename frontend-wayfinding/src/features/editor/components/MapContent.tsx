@@ -32,7 +32,7 @@ export const MapContent = ({ nodes, edges, mapImage, selectedId, selectedType, o
                     edge={edge}
                     nodes={nodes}
                     isSelected={selectedType === "edge" && selectedId === edge.id}
-                    onSelect={(id) => onSelect("edge", id)}
+                    onSelect={(edgeId) => onSelect("edge", edgeId)}
                 />
             ))}
 

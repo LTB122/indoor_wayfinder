@@ -26,7 +26,14 @@ export interface MapEdge {
   weight: number;
   type: 'walk' | 'stairs' | 'elevator';
   bidirectional?: boolean;
-  polyline?: Coordinate[];
+  polyline?: number[][]; 
+}
+
+export interface Building {
+    id: number;
+    name: string;
+    description?: string;
+    maps?: MapData[]; 
 }
 
 export interface MapData {
