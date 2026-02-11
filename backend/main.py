@@ -31,9 +31,9 @@ def health():
 
 
 # routers
-app.include_router(maps.router, prefix="/maps", tags=["maps"])
-app.include_router(nodes.router, prefix="/nodes", tags=["nodes"])
-app.include_router(aliases.router, prefix="/aliases", tags=["aliases"])
-app.include_router(edges.router, prefix="/edges", tags=["edges"])
-app.include_router(routes.router, prefix="", tags=["route"])
-app.include_router(admin.router, prefix="/admin", tags=["admin"])
+app.include_router(maps.router, prefix="/api/maps", tags=["maps"])
+app.include_router(nodes.router, prefix="/api/nodes", tags=["nodes"])
+app.include_router(aliases.router, prefix="/api/aliases", tags=["aliases"])
+app.include_router(edges.router, prefix="/api/edges", tags=["edges"])
+app.include_router(routes.router, prefix="/api", tags=["route"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])

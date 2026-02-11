@@ -1,37 +1,88 @@
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship, Column, JSON
 
+# ==========================================================
+# 1. BUILDING MODEL
+# ==========================================================
+class Building(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    description: Optional[str] = None
+    
+    # Quan hệ 1-N: Một tòa nhà có nhiều Map (các tầng)
+    maps: List["Map"] = Relationship(back_populates="building")
+
+
+# ==========================================================
+# 2. MAP MODEL
+# ==========================================================
 class Map(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
-    image_link: str
-    floor_number: int
-    scale: float
+    image_url: str  # Đổi tên từ image_link cho khớp schema
+    floor_level: Optional[int] = Field(default=None) # Tầng mấy (Null nếu là map campus)
+    scale_ratio: float = Field(default=1.0) # Tỉ lệ px/mét
+    
+    # Quan hệ N-1: Map thuộc về Building (Optional vì Map Campus không có Building)
+    building_id: Optional[int] = Field(default=None, foreign_key="building.id")
+    building: Optional[Building] = Relationship(back_populates="maps")
 
-    nodes: List["Node"] = Relationship(back_populates="map")
+    # Quan hệ 1-N: Một Map chứa nhiều Node
+    nodes: List["Node"] = Relationship(
+        back_populates="map",
+        sa_relationship_kwargs={"foreign_keys": "Node.map_id"}
+    )
+    
+    # Quan hệ ngược cho "Link To": Những Node nào dẫn tới Map này?
+    # (Ví dụ: Các node cổng ở map khác trỏ tới map này)
+    linked_from_nodes: List["Node"] = Relationship(
+        back_populates="related_map",
+        sa_relationship_kwargs={"foreign_keys": "Node.related_map_id"}
+    )
 
 
+# ==========================================================
+# 3. NODE MODEL
+# ==========================================================
 class Node(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    map_id: int = Field(foreign_key="map.id", index=True)
+    name: str
     x: float
     y: float
-    is_landmark: bool = Field(default=False)
-
-    map: Map = Relationship(back_populates="nodes")
-    aliases: List["Alias"] = Relationship(back_populates="node")
+    type: str = Field(default="path") # 'room', 'path', 'entrance', 'stairs'
     
-    # Định nghĩa quan hệ ngược cho Edge
+    # --- Quan hệ 1: Node NẰM TRÊN Map nào (Quan hệ "Has") ---
+    map_id: int = Field(foreign_key="map.id", index=True)
+    map: Map = Relationship(
+        back_populates="nodes",
+        sa_relationship_kwargs={"foreign_keys": "Node.map_id"}
+    )
+    
+    # --- Quan hệ 2: Node DẪN TỚI Map nào (Quan hệ "Link To" - Portal) ---
+    # Ví dụ: Node là "Cầu thang tầng 1" sẽ có related_map_id trỏ tới Map "Tầng 2"
+    related_map_id: Optional[int] = Field(default=None, foreign_key="map.id")
+    related_map: Optional[Map] = Relationship(
+        back_populates="linked_from_nodes",
+        sa_relationship_kwargs={"foreign_keys": "Node.related_map_id"}
+    )
+    
+    # --- Quan hệ Edge (Start/End) ---
     edges_from: List["Edge"] = Relationship(
         back_populates="start_node", 
-        sa_relationship_kwargs={"foreign_keys": "[Edge.start_node_id]"}
+        sa_relationship_kwargs={"foreign_keys": "Edge.start_node_id"}
     )
     edges_to: List["Edge"] = Relationship(
         back_populates="end_node", 
-        sa_relationship_kwargs={"foreign_keys": "[Edge.end_node_id]"}
+        sa_relationship_kwargs={"foreign_keys": "Edge.end_node_id"}
     )
+    
+    # Alias (Tên phụ)
+    aliases: List["Alias"] = Relationship(back_populates="node")
 
 
+# ==========================================================
+# 4. ALIAS MODEL (Giữ nguyên)
+# ==========================================================
 class Alias(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     node_id: int = Field(foreign_key="node.id", index=True)
@@ -40,22 +91,28 @@ class Alias(SQLModel, table=True):
     node: Node = Relationship(back_populates="aliases")
 
 
+# ==========================================================
+# 5. EDGE MODEL
+# ==========================================================
 class Edge(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    
     start_node_id: int = Field(foreign_key="node.id")
     end_node_id: int = Field(foreign_key="node.id")
-    type: str
-    # Sử dụng JSON thực thụ thay vì string
-    polyline: Optional[list] = Field(default=None, sa_column=Column(JSON))
-    weight: float
-    bidirectional: bool = Field(default=True)
     
-    # Phải tách biệt rõ start và end node
+    type: str # 'walk', 'stairs', 'elevator'
+    weight: float # Khoảng cách hoặc thời gian
+    bidirectional: bool = Field(default=True) # Đi 2 chiều hay 1 chiều
+    
+    # Lưu tọa độ vẽ đường gấp khúc (JSON)
+    polyline: Optional[List[dict]] = Field(default=None, sa_column=Column(JSON))
+    
+    # Quan hệ ngược
     start_node: Node = Relationship(
-        back_populates="edges_from", 
-        sa_relationship_kwargs={"foreign_keys": "[Edge.start_node_id]"}
+        back_populates="edges_from",
+        sa_relationship_kwargs={"foreign_keys": "Edge.start_node_id"}
     )
     end_node: Node = Relationship(
-        back_populates="edges_to", 
-        sa_relationship_kwargs={"foreign_keys": "[Edge.end_node_id]"}
+        back_populates="edges_to",
+        sa_relationship_kwargs={"foreign_keys": "Edge.end_node_id"}
     )

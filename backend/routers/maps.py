@@ -2,51 +2,72 @@ import os
 import shutil
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
-from PIL import Image
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query
 from sqlmodel import Session, select
 
 from backend.core.db import engine
-from backend.models.entities import Map
+# Import đúng các model mới
+from backend.models.entities import Map, Building 
 
 router = APIRouter()
 
-UPLOAD_DIR = os.path.join("data", "uploads")
+# Cấu hình đường dẫn lưu file
+# File sẽ nằm trong: data/uploads/
+DATA_DIR = "data"
+UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-BASE_STATIC = "/static/uploads"
-
 
 def get_session():
     with Session(engine) as session:
         yield session
 
-
+# =========================================================================
+# 1. CREATE MAP (Hỗ trợ upload ảnh + Gán Building)
+# =========================================================================
 @router.post("", response_model=Map)
 async def create_map(
     name: str = Form(...),
-    floor_number: int = Form(...),
-    scale: float = Form(1.0),
+    scale_ratio: float = Form(1.0),      # Đổi tên từ scale -> scale_ratio
+    floor_level: Optional[int] = Form(None), # Đổi tên từ floor_number, có thể null
+    building_id: Optional[int] = Form(None), # Map này thuộc tòa nhà nào (Optional)
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
 ):
-    if file.content_type not in ["image/png", "image/jpeg", "image/jpg", "image/webp"]:
-        raise HTTPException(status_code=400, detail="File phải là ảnh (png/jpg/webp).")
+    # 1. Validate File
+    if file.content_type not in ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/svg+xml"]:
+        raise HTTPException(status_code=400, detail="File phải là ảnh (png/jpg/webp/svg).")
 
-    # 2. Tạo tên file duy nhất
+    # 2. Validate Building (Nếu có gửi building_id)
+    if building_id:
+        building = session.get(Building, building_id)
+        if not building:
+            raise HTTPException(status_code=404, detail=f"Building ID {building_id} không tồn tại.")
+
+    # 3. Lưu file vật lý
+    # Tạo tên file: map_{timestamp}.png để tránh trùng
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
-    ext = os.path.splitext(file.filename)[1].lower() or ".png"
+    ext = os.path.splitext(file.filename)[1].lower()
+    if not ext: ext = ".png"
+    
     filename = f"map_{ts}{ext}"
     disk_path = os.path.join(UPLOAD_DIR, filename)
 
-    with open(disk_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    try:
+        with open(disk_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lưu file: {str(e)}")
 
-    # Lưu đường dẫn tương đối từ trong thư mục data
-    relative_path = os.path.relpath(disk_path, "data")
+    # 4. Lưu đường dẫn vào DB
+    # Lưu path tương đối dạng: "uploads/map_xxx.png" để frontend dễ ghép với Base URL
+    relative_path = os.path.join("uploads", filename).replace("\\", "/")
 
     new_map = Map(
-        name=name, floor_number=floor_number, scale=scale, image_link=relative_path
+        name=name,
+        floor_level=floor_level,
+        scale_ratio=scale_ratio,
+        image_url=relative_path, # Trường mới trong DB
+        building_id=building_id
     )
 
     session.add(new_map)
@@ -55,7 +76,41 @@ async def create_map(
 
     return new_map
 
+# =========================================================================
+# GET CAMPUS MAPS (Lấy map không thuộc tòa nhà nào)
+# =========================================================================
+@router.get("/campus", response_model=List[Map])
+def get_campus_maps(session: Session = Depends(get_session)):
+    """
+    Chỉ lấy danh sách bản đồ Campus (building_id IS NULL).
+    """
+    # SQLModel: So sánh == None sẽ tự dịch thành IS NULL trong SQL
+    statement = select(Map).where(Map.building_id == None)
+    maps = session.exec(statement).all()
+    return maps
 
+# =========================================================================
+# 2. GET LIST (Hỗ trợ lọc theo Building)
+# =========================================================================
+@router.get("", response_model=List[Map])
+def list_maps(
+    building_id: Optional[int] = Query(None, description="Lọc map theo tòa nhà. Để trống lấy tất cả."),
+    session: Session = Depends(get_session)
+):
+    statement = select(Map)
+    
+    if building_id is not None:
+        statement = statement.where(Map.building_id == building_id)
+    
+    # Sắp xếp: Map Campus (null building) lên đầu, sau đó theo ID hoặc tên
+    statement = statement.order_by(Map.building_id.nullsfirst(), Map.floor_level)
+    
+    maps = session.exec(statement).all()
+    return maps
+
+# =========================================================================
+# 3. GET SINGLE MAP
+# =========================================================================
 @router.get("/{map_id}", response_model=Map)
 def get_map(map_id: int, session: Session = Depends(get_session)):
     m = session.get(Map, map_id)
@@ -63,26 +118,25 @@ def get_map(map_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="Map không tồn tại.")
     return m
 
-
-@router.get("", response_model=dict)
-def list_maps(session: Session = Depends(get_session)):
-    # Lấy danh sách map, có thể thêm order_by nếu có field created_at
-    statement = select(Map)
-    maps = session.exec(statement).all()
-
-    return {"items": [m for m in maps]}
-
-
+# =========================================================================
+# 4. DELETE MAP (Xóa cả file ảnh)
+# =========================================================================
 @router.delete("/{map_id}")
 def delete_map(map_id: int, session: Session = Depends(get_session)):
     m = session.get(Map, map_id)
     if not m:
         raise HTTPException(status_code=404, detail="Map không tồn tại.")
 
-    # Xóa file vật lý trước khi xóa DB
-    if os.path.exists(m.image_link):
-        os.remove(m.image_link)
+    # Xử lý xóa file ảnh
+    # DB lưu: "uploads/filename.png" -> Cần ghép với "data" để thành "data/uploads/filename.png"
+    if m.image_url:
+        full_path = os.path.join(DATA_DIR, m.image_url)
+        if os.path.exists(full_path):
+            try:
+                os.remove(full_path)
+            except Exception as e:
+                print(f"Warning: Không thể xóa file ảnh {full_path}: {e}")
 
     session.delete(m)
     session.commit()
-    return {"message": "Đã xóa map thành công"}
+    return {"message": "Đã xóa map và file ảnh thành công", "id": map_id}
