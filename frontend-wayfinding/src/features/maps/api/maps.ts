@@ -20,5 +20,9 @@ export const mapApi = {
   upload: async (formData: FormData) => {
     const res = await apiClient.post<MapData>('/api/maps', formData);
     return { ...res.data, image_url: getFullImageUrl(res.data.image_url) };
+  },
+
+  delete: async (id: number) => {
+    await apiClient.delete(`/api/maps/${id}`);
   }
 };

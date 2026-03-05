@@ -7,6 +7,7 @@ export type SelectionType = 'node' | 'edge' | null;
 
 interface EditorState {
   // --- DATA ---
+  maps: MapData[];
   currentMap: MapData | null;
   nodes: MapNode[];
   edges: MapEdge[];
@@ -18,6 +19,11 @@ interface EditorState {
   isEditing: boolean; // Chế độ sửa (cho phép kéo thả node)
   
   // --- ACTIONS ---
+  setMaps: (maps: MapData[]) => void;
+  addMap: (map: MapData) => void;
+  updateMapInList: (id: number, data: Partial<MapData>) => void;
+  deleteMap: (id: number) => void;
+
   setMap: (map: MapData) => void;
   
   // Node Actions
@@ -40,6 +46,7 @@ interface EditorState {
 
 export const useEditorStore = create<EditorState>((set) => ({
   // Initial State
+  maps: [],
   currentMap: null,
   nodes: [],
   edges: [],
@@ -49,6 +56,24 @@ export const useEditorStore = create<EditorState>((set) => ({
   isEditing: false,
 
   // Actions Implementation
+  setMaps: (maps) => set({ maps }),
+  
+  addMap: (map) => set((state) => ({ 
+    maps: [...state.maps, map] 
+  })),
+
+  updateMapInList: (id, data) => set((state) => ({
+    maps: state.maps.map((m) => m.id === id ? { ...m, ...data } : m),
+    // Nếu map đang sửa chính là map bị update thì update luôn currentMap
+    currentMap: state.currentMap?.id === id ? { ...state.currentMap, ...data } : state.currentMap
+  })),
+
+  deleteMap: (id) => set((state) => ({
+    maps: state.maps.filter((m) => m.id !== id),
+    // Nếu xóa đúng map đang mở thì reset currentMap về null
+    currentMap: state.currentMap?.id === id ? null : state.currentMap
+  })),
+
   setMap: (map) => set({ currentMap: map }),
   
   setNodes: (nodes) => set({ nodes }),

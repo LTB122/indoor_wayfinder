@@ -21,7 +21,7 @@ export const MapContent = ({ nodes, edges, mapImage, selectedId, selectedType, o
             <image
                 href={mapImage}
                 x="0" y="0" width="800" height="600"
-                preserveAspectRatio="xMidYMid slice"
+                preserveAspectRatio="xMidYMid meet"
                 className="opacity-80 transition-all pointer-events-none" // pointer-events-none để không chặn click nền
             />
 
