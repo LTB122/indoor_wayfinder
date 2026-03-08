@@ -6,8 +6,9 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Q
 from sqlmodel import Session, select
 
 from backend.core.db import engine
+
 # Import đúng các model mới
-from backend.models.entities import Map, Building 
+from backend.models.entities import Map, Building
 
 router = APIRouter()
 
@@ -17,9 +18,11 @@ DATA_DIR = "data"
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+
 def get_session():
     with Session(engine) as session:
         yield session
+
 
 # =========================================================================
 # 1. CREATE MAP (Hỗ trợ upload ảnh + Gán Building)
@@ -27,28 +30,39 @@ def get_session():
 @router.post("", response_model=Map)
 async def create_map(
     name: str = Form(...),
-    scale_ratio: float = Form(1.0),      # Đổi tên từ scale -> scale_ratio
-    floor_level: Optional[int] = Form(None), # Đổi tên từ floor_number, có thể null
-    building_id: Optional[int] = Form(None), # Map này thuộc tòa nhà nào (Optional)
+    scale_ratio: float = Form(1.0),  # Đổi tên từ scale -> scale_ratio
+    floor_level: Optional[int] = Form(None),  # Đổi tên từ floor_number, có thể null
+    building_id: Optional[int] = Form(None),  # Map này thuộc tòa nhà nào (Optional)
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
 ):
     # 1. Validate File
-    if file.content_type not in ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/svg+xml"]:
-        raise HTTPException(status_code=400, detail="File phải là ảnh (png/jpg/webp/svg).")
+    if file.content_type not in [
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "image/webp",
+        "image/svg+xml",
+    ]:
+        raise HTTPException(
+            status_code=400, detail="File phải là ảnh (png/jpg/webp/svg)."
+        )
 
     # 2. Validate Building (Nếu có gửi building_id)
     if building_id:
         building = session.get(Building, building_id)
         if not building:
-            raise HTTPException(status_code=404, detail=f"Building ID {building_id} không tồn tại.")
+            raise HTTPException(
+                status_code=404, detail=f"Building ID {building_id} không tồn tại."
+            )
 
     # 3. Lưu file vật lý
     # Tạo tên file: map_{timestamp}.png để tránh trùng
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
     ext = os.path.splitext(file.filename)[1].lower()
-    if not ext: ext = ".png"
-    
+    if not ext:
+        ext = ".png"
+
     filename = f"map_{ts}{ext}"
     disk_path = os.path.join(UPLOAD_DIR, filename)
 
@@ -66,8 +80,8 @@ async def create_map(
         name=name,
         floor_level=floor_level,
         scale_ratio=scale_ratio,
-        image_url=relative_path, # Trường mới trong DB
-        building_id=building_id
+        image_url=relative_path,  # Trường mới trong DB
+        building_id=building_id,
     )
 
     session.add(new_map)
@@ -75,6 +89,7 @@ async def create_map(
     session.refresh(new_map)
 
     return new_map
+
 
 # =========================================================================
 # GET CAMPUS MAPS (Lấy map không thuộc tòa nhà nào)
@@ -89,24 +104,45 @@ def get_campus_maps(session: Session = Depends(get_session)):
     maps = session.exec(statement).all()
     return maps
 
+
+@router.patch("/{map_id}", response_model=Map)
+def update_map(map_id: int, payload: Map, session: Session = Depends(get_session)):
+    n = session.get(Map, map_id)
+    if not n:
+        raise HTTPException(status_code=404, detail="Map không tồn tại.")
+
+    # Cập nhật các field từ payload (chỉ những field không None)
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(n, field, value)
+
+    session.add(n)
+    session.commit()
+    session.refresh(n)
+    return n
+
+
 # =========================================================================
 # 2. GET LIST (Hỗ trợ lọc theo Building)
 # =========================================================================
 @router.get("", response_model=List[Map])
 def list_maps(
-    building_id: Optional[int] = Query(None, description="Lọc map theo tòa nhà. Để trống lấy tất cả."),
-    session: Session = Depends(get_session)
+    building_id: Optional[int] = Query(
+        None, description="Lọc map theo tòa nhà. Để trống lấy tất cả."
+    ),
+    session: Session = Depends(get_session),
 ):
     statement = select(Map)
-    
+
     if building_id is not None:
         statement = statement.where(Map.building_id == building_id)
-    
+
     # Sắp xếp: Map Campus (null building) lên đầu, sau đó theo ID hoặc tên
     statement = statement.order_by(Map.building_id.nullsfirst(), Map.floor_level)
-    
+
     maps = session.exec(statement).all()
     return maps
+
 
 # =========================================================================
 # 3. GET SINGLE MAP
@@ -117,6 +153,7 @@ def get_map(map_id: int, session: Session = Depends(get_session)):
     if not m:
         raise HTTPException(status_code=404, detail="Map không tồn tại.")
     return m
+
 
 # =========================================================================
 # 4. DELETE MAP (Xóa cả file ảnh)

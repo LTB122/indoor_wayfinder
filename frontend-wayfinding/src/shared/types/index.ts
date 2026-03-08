@@ -8,11 +8,16 @@ export interface Coordinate {
 export interface MapNode {
   id: number;
   map_id: number;
+  map?: MapData;
   x: number;
   y: number;
   name: string;
   type: 'path' | 'room' | 'entrance' | 'stairs' | 'elevator';
   aliases?: string[];
+  building_id?: number;
+  building?: Building;
+  linked_node_ids?: number[];
+  linked_campus_node_id?: number;
   flags?: {
     wheelchair?: boolean;
     hidden?: boolean;
@@ -43,4 +48,5 @@ export interface MapData {
   scale_ratio: number;
   floor_level?: number;
   building_id?: number;
+  building?: Building;
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { buildingApi } from "@/features/editor/api/buildingApi";
+import { editorApi } from "@/features/editor/api/editorApi";
 import { mapApi } from "@/features/maps/api/maps";
 import { Building, MapData } from "@/shared/types";
 
@@ -10,7 +11,7 @@ interface BuildingModalProps {
     onSuccess: () => void;
 }
 
-export const BuildingModal = ({ onClose, initialBuildingId, onSuccess }: BuildingModalProps) => {
+export const BuildingModal = ({ nodeId, onClose, initialBuildingId, onSuccess }: BuildingModalProps) => {
     // --- STATE ---
     const [buildings, setBuildings] = useState<Building[]>([]);
     
@@ -60,7 +61,22 @@ export const BuildingModal = ({ onClose, initialBuildingId, onSuccess }: Buildin
         setFloors(buildingMaps);
     };
 
+    // Cập nhật building_id cho node trực tiếp
+    const linkNodeToBuilding = async (buildingId: number) => {
+        try {
+            await editorApi.updateNode(nodeId, { building_id: buildingId });
+        } catch (error) {
+            console.error("Lỗi liên kết node với building", error);
+        }
+    };
+
     // --- HANDLERS ---
+    const handleSelectBuilding = async (buildingId: number) => {
+        setSelectedBuildingId(buildingId);
+        await linkNodeToBuilding(buildingId);
+        onSuccess();
+    };
+
     const handleCreateBuilding = async () => {
         if (!newBuildingName.trim()) return;
         setIsLoading(true);
@@ -68,7 +84,9 @@ export const BuildingModal = ({ onClose, initialBuildingId, onSuccess }: Buildin
             const newBuilding = await buildingApi.create({ name: newBuildingName });
             setBuildings([...buildings, newBuilding]);
             setSelectedBuildingId(newBuilding.id);
+            await linkNodeToBuilding(newBuilding.id);
             setNewBuildingName("");
+            onSuccess();
         } catch (error) {
             alert("Lỗi tạo tòa nhà");
         } finally {
@@ -151,7 +169,7 @@ export const BuildingModal = ({ onClose, initialBuildingId, onSuccess }: Buildin
                                     buildings.map(b => (
                                         <button
                                             key={b.id}
-                                            onClick={() => setSelectedBuildingId(b.id)}
+                                            onClick={() => handleSelectBuilding(b.id)}
                                             className={`w-full text-left py-2.5 px-4 rounded-lg text-sm font-semibold transition-all flex items-center justify-between group
                                                 ${selectedBuildingId === b.id 
                                                     ? 'bg-blue-100 text-blue-700' 

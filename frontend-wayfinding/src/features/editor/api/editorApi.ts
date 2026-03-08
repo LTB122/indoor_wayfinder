@@ -42,6 +42,12 @@ export const editorApi = {
     return res.data;
   },
 
+  // Lấy chi tiết một node
+  getNodeById: async (id: number) => {
+    const res = await apiClient.get<MapNode>(`/api/nodes/${id}`);
+    return res.data;
+  },
+
   // 2. Lấy danh sách Edges theo Map ID
   getEdges: async (mapId: number) => {
     const res = await apiClient.get<MapEdge[]>("/api/edges", {

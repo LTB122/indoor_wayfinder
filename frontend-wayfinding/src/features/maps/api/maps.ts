@@ -24,5 +24,10 @@ export const mapApi = {
 
   delete: async (id: number) => {
     await apiClient.delete(`/api/maps/${id}`);
+  },
+
+  updateMap: async (id: number, data: Partial<MapData>) => {
+    const res = await apiClient.patch<MapData>(`/api/maps/${id}`, data);
+    return { ...res.data, image_url: getFullImageUrl(res.data.image_url) };
   }
 };
