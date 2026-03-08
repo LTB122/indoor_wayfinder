@@ -14,28 +14,35 @@ import math
 
 router = APIRouter()
 
+
 # --- DEPENDENCY ---
 def get_session():
     with Session(engine) as session:
         yield session
 
+
 # --- MODELS ---
 class Instruction(BaseModel):
     step: int
-    text: str           # Câu hướng dẫn: "Rẽ trái tại Phòng Họp"
-    action: str         # "straight", "left", "right", "elevator", "stairs", "arrive"
-    distance_m: float   # Khoảng cách của bước này (mét)
-    coordinate: List[float] # Tọa độ điểm xảy ra hành động [x, y]
+    text: str  # Câu hướng dẫn: "Rẽ trái tại Phòng Họp"
+    action: str  # "straight", "left", "right", "elevator", "stairs", "arrive"
+    distance_m: float  # Khoảng cách của bước này (mét)
+    coordinate: List[float]  # Tọa độ điểm xảy ra hành động [x, y]
+
 
 class RouteResponse(BaseModel):
     map_id: int
-    path_coords: List[List[float]] # Polyline tổng để vẽ lên bản đồ
+    path_coords: List[List[float]]  # Polyline tổng để vẽ lên bản đồ
     total_distance_m: float
     instructions: List[Instruction]
 
+
 # --- MATH & GEO HELPERS ---
 
-def calculate_angle(p1: Tuple[float, float], p2: Tuple[float, float], p3: Tuple[float, float]) -> float:
+
+def calculate_angle(
+    p1: Tuple[float, float], p2: Tuple[float, float], p3: Tuple[float, float]
+) -> float:
     """
     Tính góc tạo bởi 3 điểm p1 -> p2 -> p3.
     Trả về độ (degrees). Dương là rẽ phải, Âm là rẽ trái (trong hệ tọa độ màn hình y hướng xuống).
@@ -44,231 +51,276 @@ def calculate_angle(p1: Tuple[float, float], p2: Tuple[float, float], p3: Tuple[
     v1x, v1y = p2[0] - p1[0], p2[1] - p1[1]
     # Vector v2 (p2 -> p3)
     v2x, v2y = p3[0] - p2[0], p3[1] - p2[1]
-    
+
     # Góc định hướng dùng atan2
     angle1 = math.atan2(v1y, v1x)
     angle2 = math.atan2(v2y, v2x)
-    
+
     angle_diff = math.degrees(angle2 - angle1)
-    
+
     # Chuẩn hóa về [-180, 180]
-    while angle_diff <= -180: angle_diff += 360
-    while angle_diff > 180: angle_diff -= 360
-    
+    while angle_diff <= -180:
+        angle_diff += 360
+    while angle_diff > 180:
+        angle_diff -= 360
+
     return angle_diff
+
 
 def get_turn_action(angle: float) -> str:
     """Xác định hành động dựa trên góc rẽ"""
-    if angle > 45: return "right"      # Rẽ phải
-    if angle < -45: return "left"      # Rẽ trái
-    if angle > 15: return "slight_right" # Chếch phải
-    if angle < -15: return "slight_left" # Chếch trái
+    if angle > 45:
+        return "right"  # Rẽ phải
+    if angle < -45:
+        return "left"  # Rẽ trái
+    if angle > 15:
+        return "slight_right"  # Chếch phải
+    if angle < -15:
+        return "slight_left"  # Chếch trái
     return "straight"
+
+
+# --- DATABASE HELPERS ---
+
+
+def get_node_name(session: Session, node_id: int) -> Optional[str]:
+    """Tìm tên Alias của node (lấy cái đầu tiên), fallback về node name"""
+    alias = session.exec(select(Alias).where(Alias.node_id == node_id)).first()
+    if alias:
+        return alias.name
+    # Fallback to node's own name
+    node = session.get(Node, node_id)
+    return node.name if node else None
+
+
+def build_graph(session: Session, map_id: int) -> Tuple[nx.Graph, Dict]:
+    """Tạo đồ thị NetworkX từ DB, bao gồm cả nodes liên kết qua các tầng"""
+    G = nx.Graph()
+    node_pos = {}
+    node_map_info = {}  # Store map_id and floor info for each node
+
+    # 1. Load all maps that are related (same building or campus)
+    # First get the base map to find related maps
+    base_map = session.get(Map, map_id)
+    if not base_map:
+        raise HTTPException(status_code=404, detail="Map not found")
+
+    # Get all maps in the same building, or all maps if this is a campus map
+    if base_map.building_id:
+        related_maps = session.exec(
+            select(Map).where(Map.building_id == base_map.building_id)
+        ).all()
+    else:
+        # Campus map - get all maps
+        related_maps = session.exec(select(Map)).all()
+
+    related_map_ids = [m.id for m in related_maps]
+
+    # 2. Load all nodes from related maps
+    nodes = session.exec(select(Node).where(Node.map_id.in_(related_map_ids))).all()
+
+    if not nodes:
+        raise HTTPException(status_code=404, detail="No nodes found.")
+
+    # Create map_id -> floor_level lookup
+    map_floor = {m.id: m.floor_level for m in related_maps}
+
+    for n in nodes:
+        G.add_node(n.id)
+        node_pos[n.id] = (n.x, n.y)
+        G.nodes[n.id]["name"] = get_node_name(session, n.id)
+        G.nodes[n.id]["map_id"] = n.map_id
+        G.nodes[n.id]["floor"] = map_floor.get(n.map_id)
+        G.nodes[n.id]["type"] = n.type
+        G.nodes[n.id]["linked_node_ids"] = n.linked_node_ids or []
+        node_map_info[n.id] = {"map_id": n.map_id, "floor": map_floor.get(n.map_id)}
+
+    # 3. Load Edges from related maps
+    edges = session.exec(
+        select(Edge)
+        .join(Node, Edge.start_node_id == Node.id)
+        .where(Node.map_id.in_(related_map_ids))
+    ).all()
+
+    for e in edges:
+        attr = {
+            "weight": e.weight,
+            "type": e.type,
+            "polyline": e.polyline if e.polyline else [],
+        }
+        G.add_edge(e.start_node_id, e.end_node_id, **attr)
+
+    # 4. Add edges for linked nodes (cross-floor connections)
+    for n in nodes:
+        if n.linked_node_ids:
+            for linked_id in n.linked_node_ids:
+                if linked_id in G.nodes:
+                    # Determine connection type based on node types
+                    if n.type in ["stairs", "elevator"] or G.nodes[linked_id].get(
+                        "type"
+                    ) in ["stairs", "elevator"]:
+                        conn_type = (
+                            n.type
+                            if n.type in ["stairs", "elevator"]
+                            else G.nodes[linked_id].get("type", "stairs")
+                        )
+                    else:
+                        conn_type = "stairs"  # Default for floor transitions
+
+                    # Add edge with high weight (stairs/elevator takes longer)
+                    G.add_edge(n.id, linked_id, weight=50, type=conn_type, polyline=[])
+
+    return G, node_pos
+
+
+# --- CORE LOGIC: GENERATE INSTRUCTIONS ---
+
 
 def get_distance(p1, p2):
     return math.hypot(p2[0] - p1[0], p2[1] - p1[1])
 
-# --- DATABASE HELPERS ---
-
-def get_node_name(session: Session, node_id: int) -> Optional[str]:
-    """Tìm tên Alias hay nhất của node (ưu tiên weight cao)"""
-    alias = session.exec(
-        select(Alias).where(Alias.node_id == node_id).order_by(Alias.weight.desc())
-    ).first()
-    return alias.name if alias else None
-
-def build_graph(session: Session, map_id: int) -> Tuple[nx.Graph, Dict]:
-    """Tạo đồ thị NetworkX từ DB"""
-    G = nx.Graph() # Dùng Graph vô hướng (bidirectional), hoặc DiGraph nếu cần 1 chiều
-    node_pos = {}
-    
-    # 1. Load Nodes
-    nodes = session.exec(select(Node).where(Node.map_id == map_id)).all()
-    if not nodes:
-        raise HTTPException(status_code=404, detail="Map chưa có node nào.")
-    
-    for n in nodes:
-        G.add_node(n.id)
-        node_pos[n.id] = (n.x, n.y)
-        # Lưu tên landmark luôn để truy xuất nhanh
-        G.nodes[n.id]['name'] = get_node_name(session, n.id)
-        G.nodes[n.id]['is_landmark'] = n.is_landmark
-
-    # 2. Load Edges
-    # Tìm edge có start_node nằm trong map này
-    edges = session.exec(
-        select(Edge).join(Node, Edge.start_node_id == Node.id).where(Node.map_id == map_id)
-    ).all()
-    
-    for e in edges:
-        # data đi kèm cạnh
-        attr = {
-            "weight": e.weight, 
-            "type": e.type, 
-            "polyline": e.polyline if e.polyline else []
-        }
-        G.add_edge(e.start_node_id, e.end_node_id, **attr)
-        # Nếu là 2 chiều thì logic Graph của NX tự hiểu kết nối 2 bên.
-    
-    return G, node_pos
-
-# --- CORE LOGIC: GENERATE INSTRUCTIONS ---
 
 def generate_human_instructions(
-    G: nx.Graph, 
-    path_nodes: List[int], 
-    node_pos: Dict, 
-    scale: float
+    G: nx.Graph, path_nodes: List[int], node_pos: Dict, scale: float
 ) -> Tuple[List[Instruction], float]:
-    
     instructions = []
     total_dist_px = 0.0
-    
+
     if len(path_nodes) < 2:
         return [], 0.0
 
-    # Bước 1: Khởi tạo
-    start_node = path_nodes[0]
-    start_name = G.nodes[start_node]['name'] or "Điểm xuất phát"
-    instructions.append(Instruction(
-        step=1,
-        text=f"Bắt đầu tại {start_name}",
-        action="start",
-        distance_m=0,
-        coordinate=[node_pos[start_node][0], node_pos[start_node][1]]
-    ))
+    # Build full path with all intermediate points from polylines
+    full_path_points = []  # List of [x, y] coordinates
 
-    # Biến tạm để cộng dồn khoảng cách cho hành động "Đi thẳng"
-    accumulated_dist = 0.0
-    last_turn_index = 0 
-    
-    # Duyệt qua từng cạnh trong đường đi
     for i in range(len(path_nodes) - 1):
         u = path_nodes[i]
-        v = path_nodes[i+1]
-        
-        # Lấy thông tin cạnh
+        v = path_nodes[i + 1]
+
+        # Add start node
+        if i == 0:
+            full_path_points.append(node_pos[u])
+
+        # Get edge data
         edge_data = G.get_edge_data(u, v)
-        dist_px = edge_data['weight'] # Weight này nên là độ dài pixel
-        # Nếu trong DB weight đã nhân scale, cần chia lại, hoặc thống nhất weight = pixel length
-        
-        edge_type = edge_data.get('type', 'walk')
-        
-        total_dist_px += dist_px
-        accumulated_dist += dist_px
-        
-        # Logic 1: Xác định nếu có thay đổi về Loại đường (Type)
-        # Ví dụ: Đang đi bộ -> Gặp cầu thang
-        is_type_change = False
-        if i < len(path_nodes) - 2:
-            next_u, next_v = path_nodes[i+1], path_nodes[i+2]
-            next_type = G.get_edge_data(next_u, next_v).get('type', 'walk')
-            if edge_type != next_type:
-                is_type_change = True
-        
-        # Logic 2: Xác định Góc rẽ (Turn)
-        turn_action = "straight"
-        if i < len(path_nodes) - 2:
-            # Lấy 3 điểm: u -> v -> w
-            w = path_nodes[i+2]
-            p1 = node_pos[u]
-            p2 = node_pos[v]
-            p3 = node_pos[w]
+        polyline = edge_data.get("polyline", [])
+
+        # Add intermediate polyline points
+        if polyline:
+            for p in polyline:
+                if isinstance(p, list) and len(p) >= 2:
+                    full_path_points.append([p[0], p[1]])
+
+        # Add end node
+        full_path_points.append(node_pos[v])
+
+    # Calculate total distance
+    for i in range(len(full_path_points) - 1):
+        total_dist_px += get_distance(full_path_points[i], full_path_points[i + 1])
+
+    # Generate instructions based on full path points
+    instructions.append(
+        Instruction(
+            step=1,
+            text=f"Bắt đầu từ {G.nodes[path_nodes[0]]['name'] or 'điểm xuất phát'}",
+            action="start",
+            distance_m=0,
+            coordinate=full_path_points[0],
+        )
+    )
+
+    # Process each segment and detect turns + floor changes
+    if len(full_path_points) >= 3:
+        for i in range(1, len(full_path_points) - 1):
+            p1 = full_path_points[i - 1]
+            p2 = full_path_points[i]
+            p3 = full_path_points[i + 1]
+
+            # Calculate turn angle
             angle = calculate_angle(p1, p2, p3)
             turn_action = get_turn_action(angle)
 
-        # Logic 3: Xác định Landmark (Đi ngang qua)
-        # Nếu node v là landmark và chúng ta KHÔNG rẽ tại v, thì nhắc "đi ngang qua"
-        pass_landmark_text = ""
-        v_name = G.nodes[v]['name']
-        if v_name and turn_action == "straight" and not is_type_change:
-             # Chỉ nhắc nếu đoạn đường đủ dài để đáng chú ý (> 5m)
-             if accumulated_dist * scale > 5:
-                 pass_landmark_text = f", đi ngang qua {v_name}"
+            # Distance for this segment (from point i to point i+1)
+            dist_px = get_distance(p1, p2)
+            dist_m = round(dist_px * scale, 1)
 
-        # --- QUYẾT ĐỊNH TẠO HƯỚNG DẪN MỚI ---
-        # Chúng ta sẽ "ngắt" dòng và tạo hướng dẫn mới nếu:
-        # 1. Có rẽ (trái/phải)
-        # 2. Đổi loại đường (thang máy/cầu thang)
-        # 3. Là điểm cuối cùng
-        
-        should_emit = (turn_action != "straight") or is_type_change or (i == len(path_nodes) - 2)
-        
-        if should_emit:
-            dist_m = round(accumulated_dist * scale, 1)
-            
-            # Tạo câu text cho đoạn vừa đi qua
-            current_text = ""
-            
-            # Xử lý text dựa trên loại đường VỪA ĐI
+            # Check for floor change by looking at node indices
+            # Map point index to path node index
+            node_idx = min(i, len(path_nodes) - 1)
+            edge_u = path_nodes[node_idx]
+            edge_v = path_nodes[min(node_idx + 1, len(path_nodes) - 1)]
+            edge_data = G.get_edge_data(edge_u, edge_v)
+            edge_type = edge_data.get("type", "walk") if edge_data else "walk"
+
+            # Get floor info for current node
+            current_floor = G.nodes[edge_u].get("floor")
+            next_floor = (
+                G.nodes[edge_v].get("floor") if node_idx + 1 < len(path_nodes) else None
+            )
+
+            # Detect floor change
+            floor_change = current_floor and next_floor and current_floor != next_floor
+
+            step_action = "straight"
+            text = ""
+
+            # Generate text based on edge type
             if edge_type == "walk":
-                current_text = f"Đi thẳng {dist_m}m{pass_landmark_text}"
+                text = f"Đi bộ {dist_m}m"
             elif edge_type == "elevator":
-                current_text = f"Đi thang máy ({dist_m}m)"
+                text = f"Đi thang máy {dist_m}m"
             elif edge_type == "stairs":
-                current_text = f"Đi cầu thang bộ ({dist_m}m)"
-            elif edge_type == "escalator":
-                current_text = f"Đi thang cuốn ({dist_m}m)"
-            
-            # Nếu có rẽ ở cuối đoạn này, nối thêm câu rẽ
-            next_node_name = G.nodes[v]['name']
-            location_ref = f" tại {next_node_name}" if next_node_name else ""
-            
-            step_action = "straight" # Action chính của bước này (cho icon UI)
-            
+                text = f"Đi cầu thang {dist_m}m"
+
+            # Add turn instruction
             if turn_action == "left":
-                current_text += f", sau đó rẽ trái{location_ref}"
+                text += ". Rẽ trái"
                 step_action = "turn_left"
             elif turn_action == "right":
-                current_text += f", sau đó rẽ phải{location_ref}"
+                text += ". Rẽ phải"
                 step_action = "turn_right"
             elif turn_action == "slight_left":
-                current_text += f", chếch sang trái{location_ref}"
+                text += ". Đi chếch trái"
                 step_action = "slight_left"
             elif turn_action == "slight_right":
-                current_text += f", chếch sang phải{location_ref}"
+                text += ". Đi chếch phải"
                 step_action = "slight_right"
-            
-            # Nếu đổi loại đường (ví dụ đang đi bộ -> gặp thang máy)
-            if is_type_change:
-                next_u, next_v = path_nodes[i+1], path_nodes[i+2]
-                next_type = G.get_edge_data(next_u, next_v).get('type', 'walk')
-                
-                if next_type == "elevator":
-                    current_text += f", đi vào thang máy"
-                    step_action = "enter_elevator"
-                elif next_type == "stairs":
-                    current_text += f", đi vào cầu thang bộ"
-                    step_action = "enter_stairs"
-            
-            # Override nếu là edge đặc biệt
-            if edge_type == "elevator": step_action = "use_elevator"
-            if edge_type == "stairs": step_action = "use_stairs"
 
-            # Thêm vào danh sách
-            instructions.append(Instruction(
-                step=len(instructions) + 1,
-                text=current_text,
-                action=step_action,
-                distance_m=dist_m,
-                coordinate=[node_pos[v][0], node_pos[v][1]]
-            ))
-            
-            # Reset cộng dồn
-            accumulated_dist = 0.0
+            # Add floor change info
+            if floor_change and next_floor is not None and current_floor is not None:
+                direction = "lên" if next_floor > current_floor else "xuống"
+                floor_text = f"Tầng {next_floor}" if next_floor else "tầng mới"
+                if edge_type == "elevator":
+                    text += f". Lên thang máy đến {floor_text}"
+                    step_action = "use_elevator"
+                else:
+                    text += f". Đi cầu thang {direction} {floor_text}"
+                    step_action = "use_stairs"
 
-    # Bước cuối: Đích đến
+            instructions.append(
+                Instruction(
+                    step=len(instructions) + 1,
+                    text=text,
+                    action=step_action,
+                    distance_m=dist_m,
+                    coordinate=p2,
+                )
+            )
+
+    # Final instruction
     end_node = path_nodes[-1]
-    end_name = G.nodes[end_node]['name'] or "Điểm đích"
-    instructions.append(Instruction(
-        step=len(instructions) + 1,
-        text=f"Bạn đã đến {end_name}",
-        action="arrive",
-        distance_m=0,
-        coordinate=[node_pos[end_node][0], node_pos[end_node][1]]
-    ))
+    end_name = G.nodes[end_node].get("name", "điểm đến")
+    instructions.append(
+        Instruction(
+            step=len(instructions) + 1,
+            text=f"Đã đến {end_name}",
+            action="arrive",
+            distance_m=0,
+            coordinate=full_path_points[-1],
+        )
+    )
 
     return instructions, total_dist_px
+
 
 def find_best_alias_node(
     session: Session,
@@ -282,28 +334,32 @@ def find_best_alias_node(
     Sử dụng RapidFuzz để so khớp gần đúng.
     """
     norm_q = normalize_name(query)
-    
+
     # Lấy tất cả Alias của map này
     aliases = session.exec(
-        select(Alias, Node).join(Node, Alias.node_id == Node.id).where(Node.map_id == map_id)
+        select(Alias, Node)
+        .join(Node, Alias.node_id == Node.id)
+        .where(Node.map_id == map_id)
     ).all()
-    
+
     if not aliases:
         return None
 
     # Tạo dict để fuzzy search: {id: norm_name}
     choices = {a.id: normalize_name(a.name) for (a, _n) in aliases}
-    
+
     # Tìm top 5 kết quả giống nhất
     # process.extract trả về list [(name, score, key), ...]
-    best_matches = process.extract(norm_q, choices, scorer=fuzz.token_set_ratio, limit=5)
-    
+    best_matches = process.extract(
+        norm_q, choices, scorer=fuzz.token_set_ratio, limit=5
+    )
+
     candidates = []
     # aliases_by_id = {a.id: (a, n) for a, n in aliases} # Map nhanh
-    
+
     # Lọc những kết quả có độ khớp > 50 (để tránh lấy bừa)
     valid_keys = [res[2] for res in best_matches if res[1] > 50]
-    
+
     if not valid_keys:
         return None
 
@@ -325,59 +381,76 @@ def find_best_alias_node(
     # Ở đây ta lấy cái đầu tiên trong list candidates (đã được lọc)
     return candidates[0].id
 
+
 # --- API ENDPOINT ---
+
 
 @router.get("/find", response_model=RouteResponse)
 def find_route(
-    map_id: int, 
-    start_node_id: int, 
-    end_node_id: int, 
-    session: Session = Depends(get_session)
+    map_id: int,
+    start_node_id: int,
+    end_node_id: int,
+    session: Session = Depends(get_session),
 ):
     # 1. Lấy thông tin Map để có scale
     m = session.get(Map, map_id)
     if not m:
         raise HTTPException(status_code=404, detail="Map không tồn tại")
-    scale = m.scale if m.scale else 1.0 # mét / pixel
+    scale = m.scale_ratio if m.scale_ratio else 1.0  # mét / pixel
 
     # 2. Build Graph & Tìm đường ngắn nhất (Dijkstra)
     G, node_pos = build_graph(session, map_id)
-    
+
     if start_node_id not in G or end_node_id not in G:
-        raise HTTPException(status_code=400, detail="Start/End node không thuộc map này")
-        
+        raise HTTPException(
+            status_code=400, detail="Start/End node không thuộc map này"
+        )
+
     try:
-        path_nodes = nx.shortest_path(G, source=start_node_id, target=end_node_id, weight="weight")
+        path_nodes = nx.shortest_path(
+            G, source=start_node_id, target=end_node_id, weight="weight"
+        )
     except nx.NetworkXNoPath:
         raise HTTPException(status_code=404, detail="Không tìm thấy đường đi")
 
     # 3. Tạo hướng dẫn chi tiết
     instrs, total_px = generate_human_instructions(G, path_nodes, node_pos, scale)
-    
+
     # 4. Tạo Polyline tổng (để vẽ line liền mạch trên UI)
     full_polyline = []
-    for node_id in path_nodes:
+    for i, node_id in enumerate(path_nodes):
+        # Thêm tọa độ node hiện tại
         full_polyline.append([node_pos[node_id][0], node_pos[node_id][1]])
+
+        # Nếu không phải node cuối, thêm các điểm trung gian từ edge
+        if i < len(path_nodes) - 1:
+            next_node_id = path_nodes[i + 1]
+            edge_data = G.get_edge_data(node_id, next_node_id)
+            if edge_data and edge_data.get("polyline"):
+                # Thêm các điểm trung gian (trừ điểm cuối vì đã thêm node tiếp theo)
+                for p in edge_data["polyline"][:-1]:
+                    if isinstance(p, list) and len(p) >= 2:
+                        full_polyline.append([p[0], p[1]])
 
     return RouteResponse(
         map_id=map_id,
         path_coords=full_polyline,
         total_distance_m=round(total_px * scale, 2),
-        instructions=instrs
+        instructions=instrs,
     )
-    
-    
+
+
 @router.get("/query", response_model=RouteResponse)
 def route_by_query(
     map_id: int,
     q: str = Query(..., description="Ví dụ: 'từ Sảnh A đến Thang máy'"),
     cx: Optional[float] = None,
     cy: Optional[float] = None,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     # 1. Parse câu query
     start_txt, end_txt = extract_a_b(q)
-    
+
     start_id = None
     end_id = None
 
@@ -397,7 +470,7 @@ def route_by_query(
     # 3. Tìm End Node ID
     if end_txt:
         end_id = find_best_alias_node(session, map_id, end_txt, cx, cy)
-    
+
     # Error handling chi tiết
     errors = []
     if not start_id:
@@ -406,35 +479,48 @@ def route_by_query(
     if not end_id:
         dest_desc = end_txt if end_txt else "điểm đến"
         errors.append(f"Không tìm thấy điểm đến '{dest_desc}'")
-        
+
     if errors:
         raise HTTPException(status_code=404, detail=". ".join(errors))
 
     # 4. Tính toán đường đi (Sử dụng lại logic của hàm find_route cũ nhưng gọi nội bộ)
     # Copy logic từ find_route hoặc tách logic find_route ra hàm riêng để tái sử dụng
     # Ở đây mình viết lại đoạn gọi logic cho gọn:
-    
+
     m = session.get(Map, map_id)
-    scale = m.scale if m and m.scale else 1.0
+    scale = m.scale_ratio if m and m.scale_ratio else 1.0
 
     G, node_pos = build_graph(session, map_id)
-    
+
     try:
-        path_nodes = nx.shortest_path(G, source=start_id, target=end_id, weight="weight")
+        path_nodes = nx.shortest_path(
+            G, source=start_id, target=end_id, weight="weight"
+        )
     except nx.NetworkXNoPath:
-        raise HTTPException(status_code=404, detail="Không có đường đi giữa hai điểm này.")
+        raise HTTPException(
+            status_code=404, detail="Không có đường đi giữa hai điểm này."
+        )
     except nx.NodeNotFound:
-         raise HTTPException(status_code=400, detail="Lỗi dữ liệu đồ thị.")
+        raise HTTPException(status_code=400, detail="Lỗi dữ liệu đồ thị.")
 
     # Tạo hướng dẫn
     instrs, total_px = generate_human_instructions(G, path_nodes, node_pos, scale)
-    
+
     # Tạo polyline
-    full_polyline = [[node_pos[uid][0], node_pos[uid][1]] for uid in path_nodes]
+    full_polyline = []
+    for i, node_id in enumerate(path_nodes):
+        full_polyline.append([node_pos[node_id][0], node_pos[node_id][1]])
+        if i < len(path_nodes) - 1:
+            next_node_id = path_nodes[i + 1]
+            edge_data = G.get_edge_data(node_id, next_node_id)
+            if edge_data and edge_data.get("polyline"):
+                for p in edge_data["polyline"][:-1]:
+                    if isinstance(p, list) and len(p) >= 2:
+                        full_polyline.append([p[0], p[1]])
 
     return RouteResponse(
         map_id=map_id,
         path_coords=full_polyline,
         total_distance_m=round(total_px * scale, 2),
-        instructions=instrs
+        instructions=instrs,
     )

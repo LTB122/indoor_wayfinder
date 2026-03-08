@@ -47,7 +47,8 @@ def clear_map_data(payload: ClearMapIn, session: Session = Depends(get_session))
         if payload.delete_upload and img_path and os.path.exists(img_path):
             try:
                 os.remove(img_path)
-            except: pass
+            except:
+                pass
 
     session.commit()
     return {"ok": True, "detail": f"Đã dọn dẹp dữ liệu cho map {payload.map_id}"}
@@ -56,10 +57,11 @@ def clear_map_data(payload: ClearMapIn, session: Session = Depends(get_session))
 class FullMapResponse(BaseModel):
     id: int
     name: str
-    floor_number: int
+    floor_level: int
     scale: float
     nodes: List[dict]
     edges: List[dict]
+
 
 @router.get("/{map_id}/full", response_model=FullMapResponse)
 def get_full_map_details(map_id: int, session: Session = Depends(get_session)):
@@ -70,7 +72,7 @@ def get_full_map_details(map_id: int, session: Session = Depends(get_session)):
 
     # 2. Lấy Nodes kèm theo Aliases (SQLModel tự handle relationship nếu đã config)
     nodes = session.exec(select(Node).where(Node.map_id == map_id)).all()
-    
+
     # Chuyển node sang dict và kèm aliases
     node_list = []
     node_ids = []
@@ -89,8 +91,8 @@ def get_full_map_details(map_id: int, session: Session = Depends(get_session)):
     return {
         "id": m.id,
         "name": m.name,
-        "floor_number": m.floor_number,
-        "scale": m.scale,
+        "floor_level": m.floor_level,
+        "scale": m.scale_ratio,
         "nodes": node_list,
-        "edges": edge_list
+        "edges": edge_list,
     }

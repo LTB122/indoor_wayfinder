@@ -44,9 +44,24 @@ export interface Building {
 export interface MapData {
   id: number;
   name: string;
-  image_url: string; // URL đầy đủ (http://...)
+  image_url: string;
   scale_ratio: number;
   floor_level?: number;
   building_id?: number;
   building?: Building;
+}
+
+export interface Instruction {
+  step: number;
+  text: string;
+  action: string;
+  distance_m: number;
+  coordinate: [number, number];
+}
+
+export interface RouteResponse {
+  map_id: number;
+  path_coords: number[][];
+  total_distance_m: number;
+  instructions: Instruction[];
 }
